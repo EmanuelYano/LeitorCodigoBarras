@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leitor de Código de Barras</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, sans-serif;
+    background: #111; color: #fff; padding: 16px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  h1 { font-size: 1.3rem; margin: 0; }
+  .camera {
+    position: relative; width: 100%; max-width: 480px;
+    aspect-ratio: 4 / 3; background: #000; border-radius: 12px; overflow: hidden;
+  }
+  video { width: 100%; height: 100%; object-fit: cover; }
+  .guia {
+    position: absolute; top: 50%; left: 10%; right: 10%; height: 2px;
+    background: red; box-shadow: 0 0 8px red;
+  }
+  button {
+    padding: 12px 24px; font-size: 1rem; border: 0; border-radius: 8px;
+    background: #2e7d32; color: #fff; cursor: pointer;
+  }
+  button.parar { background: #c62828; }
+  #resultado {
+    width: 100%; max-width: 480px; background: #222; border-radius: 12px;
+    padding: 16px; text-align: center;
+  }
+  #codigo { font-size: 1.5rem; font-weight: bold; word-break: break-all; margin: 8px 0; }
+  #status { font-size: .9rem; color: #aaa; }
+  #lista { list-style: none; padding: 0; margin: 8px 0 0; font-size: .9rem; color: #ccc; }
+</style>
+</head>
+<body>
+  <h1>📷 Leitor de Código de Barras</h1>
+
+  <div class="camera">
+    <video id="video" playsinline muted></video>
+    <div class="guia"></div>
+  </div>
+
+  <button id="btn">Iniciar câmera</button>
+
+  <div id="resultado">
+    <div id="status">Aguardando leitura...</div>
+    <div id="codigo">—</div>
+    <div id="formato"></div>
+    <ul id="lista"></ul>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+const video = document.getElementById('video');
+const btn = document.getElementById('btn');
+const statusEl = document.getElementById('status');
+const codigoEl = document.getElementById('codigo');
+const formatoEl = document.getElementById('formato');
+const listaEl = document.getElementById('lista');
+
+let stream = null;
+let rodando = false;
+let zxingReader = null;
+let ultimo = '';
+
+function mostrar(valor, formato) {
+  if (valor === ultimo) return;           // evita repetir a mesma leitura
+  ultimo = valor;
+  codigoEl.textContent = valor;
+  formatoEl.textContent = 'Formato: ' + formato;
+  statusEl.textContent = '✅ Código lido!';
+  if (navigator.vibrate) navigator.vibrate(150);
+  const li = document.createElement('li');
+  li.textContent = valor + ' (' + formato + ')';
+  listaEl.prepend(li);
+}
+
+async function iniciar() {
+  statusEl.textContent = 'Abrindo câmera...';
+  try {
+    if ('BarcodeDetector' in window) {
+      await iniciarNativo();
+    } else {
+      iniciarZXing();
+    }
+    rodando = true;
+    btn.textContent = 'Parar câmera';
+    btn.classList.add('parar');
+    statusEl.textContent = 'Aponte para o código de barras';
+  } catch (e) {
+    statusEl.textContent = '❌ Erro: ' + e.message;
+  }
+}
+
+// Método 1: API nativa (Chrome Android)
+async function iniciarNativo() {
+  const formatos = await BarcodeDetector.getSupportedFormats();
+  const detector = new BarcodeDetector({ formats: formatos });
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' } }
+  });
+  video.srcObject = stream;
+  await video.play();
+
+  const ler = async () => {
+    if (!rodando) return;
+    try {
+      const codigos = await detector.detect(video);
+      if (codigos.length) mostrar(codigos[0].rawValue, codigos[0].format);
+    } catch (_) {}
+    requestAnimationFrame(ler);
+  };
+  rodando = true;
+  ler();
+}
+
+// Método 2: ZXing (iPhone/Safari e outros)
+function iniciarZXing() {
+  zxingReader = new ZXing.BrowserMultiFormatReader();
+  zxingReader.decodeFromConstraints(
+    { video: { facingMode: { ideal: 'environment' } } },
+    video,
+    (resultado) => {
+      if (resultado) mostrar(resultado.getText(), ZXing.BarcodeFormat[resultado.getBarcodeFormat()]);
+    }
+  );
+}
+
+function parar() {
+  rodando = false;
+  if (zxingReader) { zxingReader.reset(); zxingReader = null; }
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.srcObject = null;
+  btn.textContent = 'Iniciar câmera';
+  btn.classList.remove('parar');
+  statusEl.textContent = 'Câmera parada';
+}
+
+btn.addEventListener('click', () => rodando ? parar() : iniciar());
+</script>
+</body>
+</html>
